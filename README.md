@@ -1,4 +1,4 @@
-# @thecodesaiyan/n8n-mcp
+# tcs-n8n-mcp
 
 An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server for managing [n8n](https://n8n.io) workflow automation instances. Provides 22 tools for workflows, executions, tags, variables, credentials, and users.
 
@@ -11,7 +11,7 @@ Add to your MCP client configuration:
   "mcpServers": {
     "n8n": {
       "command": "npx",
-      "args": ["-y", "@thecodesaiyan/n8n-mcp"],
+      "args": ["-y", "tcs-n8n-mcp"],
       "env": {
         "N8N_API_URL": "http://localhost:5678",
         "N8N_API_KEY": "your-api-key-here"
@@ -26,7 +26,7 @@ Add to your MCP client configuration:
 Add to `~/.claude.json` under `mcpServers`, or run:
 
 ```bash
-claude mcp add n8n -- npx -y @thecodesaiyan/n8n-mcp
+claude mcp add n8n -- npx -y tcs-n8n-mcp
 ```
 
 Then set the environment variables `N8N_API_URL` and `N8N_API_KEY`.
