@@ -23,6 +23,7 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full c
 - **22 tools** covering the full n8n REST API
 - **Works everywhere** — Claude Code, Claude Desktop, VS Code, Cursor, Windsurf, Cline
 - **Secure by default** — ID validation, sanitised errors, masked secrets, request timeouts
+- **Flexible authentication** — API key (default), Bearer token, or Basic Auth
 - **Zero config** — just provide your n8n API key and go
 - **Lightweight** — under 30KB, no runtime dependencies beyond the MCP SDK and Zod
 
@@ -44,12 +45,31 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full c
 npx @thecodesaiyan/tcs-n8n-mcp
 ```
 
-Set the required environment variables:
+### Interactive Setup Wizard
+
+The setup wizard walks you through configuration and tests your connection:
+
+```bash
+npx @thecodesaiyan/tcs-n8n-mcp --setup
+```
+
+It will prompt for your n8n URL, auth type, and credentials, then output ready-to-paste config for your MCP client.
+
+### Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
-| `N8N_API_KEY` | Yes | — | Your n8n API key |
+| `N8N_API_KEY` | Yes | — | Your n8n API key (or password for basic auth) |
 | `N8N_API_URL` | No | `http://localhost:5678` | Base URL of your n8n instance |
+| `N8N_AUTH_TYPE` | No | `apikey` | Authentication method: `apikey`, `bearer`, or `basic` |
+| `N8N_API_USER` | Only for `basic` | — | Username for basic authentication |
+| `N8N_TIMEOUT_MS` | No | `30000` | Request timeout in milliseconds |
+
+#### Authentication Types
+
+- **`apikey`** (default) — Sends `X-N8N-API-KEY` header. This is n8n's standard API authentication.
+- **`bearer`** — Sends `Authorization: Bearer <token>` header.
+- **`basic`** — Sends `Authorization: Basic <base64>` header. Requires `N8N_API_USER` to be set.
 
 ---
 
@@ -58,13 +78,19 @@ Set the required environment variables:
 <details>
 <summary><strong>Claude Code</strong></summary>
 
-#### Option A: CLI command
+#### Option A: Interactive wizard
 
 ```bash
-claude mcp add n8n -- npx -y @thecodesaiyan/tcs-n8n-mcp
+npx @thecodesaiyan/tcs-n8n-mcp --setup
 ```
 
-#### Option B: Manual config
+#### Option B: CLI command
+
+```bash
+claude mcp add n8n -e N8N_API_URL=http://localhost:5678 -e N8N_API_KEY=your-api-key -- npx -y @thecodesaiyan/tcs-n8n-mcp
+```
+
+#### Option C: Manual config
 
 Add to `~/.claude.json`:
 
@@ -275,9 +301,11 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 | **ID Validation** | All resource IDs are validated as numeric strings to prevent path traversal attacks |
 | **Error Sanitisation** | API error responses only return HTTP status codes, never raw response bodies |
 | **Secret Masking** | Variable values are hidden in list output to prevent accidental secret exposure |
-| **Request Timeout** | All API calls have a 30-second timeout to prevent hanging connections |
+| **Request Timeout** | All API calls have a configurable timeout (default 30s) to prevent hanging connections |
 | **No Key Logging** | API keys are never logged, echoed, or included in tool output |
 | **Credential Safety** | The credentials tool only returns metadata — secrets are never exposed |
+| **Startup Validation** | Credentials and connectivity are verified on startup before accepting any requests |
+| **Header Injection Prevention** | Basic auth credentials are validated to reject control characters |
 
 ---
 
@@ -301,7 +329,14 @@ npm install
 ### Running locally
 
 ```bash
+# API key auth (default)
 N8N_API_KEY=your-key N8N_API_URL=http://localhost:5678 npm start
+
+# Bearer token auth
+N8N_AUTH_TYPE=bearer N8N_API_KEY=your-token N8N_API_URL=http://localhost:5678 npm start
+
+# Basic auth
+N8N_AUTH_TYPE=basic N8N_API_USER=admin N8N_API_KEY=password N8N_API_URL=http://localhost:5678 npm start
 ```
 
 ### Project Structure
@@ -309,6 +344,7 @@ N8N_API_KEY=your-key N8N_API_URL=http://localhost:5678 npm start
 ```
 src/
   index.ts              Entry point, fetch wrapper, server setup
+  config.ts             Auth type parsing, header building, timeout, connection check
   types.ts              Shared types, interfaces, response helpers
   validation.ts         Zod schemas for input validation
   tools/

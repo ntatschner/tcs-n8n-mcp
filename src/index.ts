@@ -9,6 +9,8 @@ import { registerTagTools } from "./tools/tags.js";
 import { registerVariableTools } from "./tools/variables.js";
 import { registerCredentialTools } from "./tools/credentials.js";
 import { registerUserTools } from "./tools/users.js";
+import { parseAuthType, buildAuthHeaders, parseTimeoutMs, checkConnection } from "./config.js";
+import type { AuthType } from "./config.js";
 
 // --- Interactive setup mode ---
 if (process.argv.includes("--setup")) {
@@ -24,44 +26,86 @@ async function runSetup(): Promise<void> {
   console.log("\n  @thecodesaiyan/tcs-n8n-mcp - Setup Wizard\n");
 
   const url = (await rl.question("  n8n URL [http://localhost:5678]: ")).trim() || "http://localhost:5678";
-  const apiKey = (await rl.question("  n8n API Key: ")).trim();
+
+  const authTypeRaw = (await rl.question("  Auth type (apikey/bearer/basic) [apikey]: ")).trim() || "apikey";
+  let authType: AuthType;
+  try {
+    authType = parseAuthType(authTypeRaw);
+  } catch {
+    console.error(`\n  Invalid auth type "${authTypeRaw}". Must be: apikey, bearer, or basic.\n`);
+    rl.close();
+    process.exit(1);
+  }
+
+  let apiUser = "";
+  if (authType === "basic") {
+    apiUser = (await rl.question("  n8n Username: ")).trim();
+    if (!apiUser) {
+      console.error("\n  Username is required for basic auth.\n");
+      rl.close();
+      process.exit(1);
+    }
+  }
+
+  const credentialLabel = authType === "basic" ? "Password" : "API Key";
+  const apiKey = (await rl.question(`  n8n ${credentialLabel}: `)).trim();
   rl.close();
 
   if (!apiKey) {
-    console.error("\n  API key is required. Generate one in n8n: Settings > API > Create API Key\n");
+    console.error(
+      authType === "basic"
+        ? "\n  Password is required.\n"
+        : "\n  API key is required. Generate one in n8n: Settings > API > Create API Key\n",
+    );
     process.exit(1);
   }
 
   // Test connection
   console.log("\n  Testing connection...");
   const testUrl = `${url.replace(/\/$/, "")}/api/v1/workflows?limit=1`;
+  const testHeaders = buildAuthHeaders(authType, apiKey, apiUser || undefined);
   try {
     const res = await fetch(testUrl, {
-      headers: { "X-N8N-API-KEY": apiKey, "Content-Type": "application/json" },
+      headers: { ...testHeaders, "Content-Type": "application/json" },
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       console.error(`  Connection failed: HTTP ${res.status}`);
-      console.error("  Check your URL and API key, then try again.\n");
+      console.error("  Check your URL and credentials, then try again.\n");
       process.exit(1);
     }
     console.log("  Connected successfully!\n");
   } catch (e) {
     console.error(`  Connection failed: ${e instanceof Error ? e.message : e}`);
-    console.error("  Check your URL and API key, then try again.\n");
+    console.error("  Check your URL and credentials, then try again.\n");
     process.exit(1);
   }
 
+  // Build env config — only include non-default values
+  const env: Record<string, string> = {
+    N8N_API_URL: url,
+    N8N_API_KEY: apiKey,
+  };
+  if (authType !== "apikey") {
+    env.N8N_AUTH_TYPE = authType;
+  }
+  if (authType === "basic") {
+    env.N8N_API_USER = apiUser;
+  }
+
   const pkg = "@thecodesaiyan/tcs-n8n-mcp";
-  const envJson = JSON.stringify({ N8N_API_URL: url, N8N_API_KEY: apiKey });
   const stdioCfg = {
     command: "npx",
     args: ["-y", pkg],
-    env: { N8N_API_URL: url, N8N_API_KEY: apiKey },
+    env,
   };
 
+  const envFlags = Object.entries(env)
+    .map(([k, v]) => `-e ${k}=${v}`)
+    .join(" ");
+
   console.log("  ── Claude Code ──");
-  console.log(`  claude mcp add tcs-n8n-mcp -e N8N_API_URL=${url} -e N8N_API_KEY=${apiKey} -- npx -y ${pkg}\n`);
+  console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- npx -y ${pkg}\n`);
 
   console.log("  ── Claude Desktop / Windsurf ──");
   console.log("  Add to your config JSON under \"mcpServers\":\n");
@@ -70,19 +114,37 @@ async function runSetup(): Promise<void> {
   console.log("  ── Cursor ──");
   console.log("  Add to .cursor/mcp.json under \"mcpServers\":\n");
   console.log(`  "tcs-n8n-mcp": ${JSON.stringify(stdioCfg, null, 4)}\n`);
+
+  console.log("  Note: The above snippets contain your credentials.");
+  console.log("  Avoid sharing them in public channels or screenshots.\n");
 }
 
 // --- Normal MCP server mode ---
 const N8N_API_URL = process.env.N8N_API_URL || "http://localhost:5678";
 const N8N_API_KEY = process.env.N8N_API_KEY || "";
+const N8N_API_USER = process.env.N8N_API_USER || "";
 
 if (!N8N_API_KEY) {
   console.error("N8N_API_KEY environment variable is required");
   process.exit(1);
 }
 
+let authType: AuthType;
+try {
+  authType = parseAuthType(process.env.N8N_AUTH_TYPE);
+} catch (e) {
+  console.error(e instanceof Error ? e.message : String(e));
+  process.exit(1);
+}
+
+if (authType === "basic" && !N8N_API_USER) {
+  console.error("N8N_API_USER environment variable is required when N8N_AUTH_TYPE is 'basic'");
+  process.exit(1);
+}
+
+const authHeaders = buildAuthHeaders(authType, N8N_API_KEY, N8N_API_USER || undefined);
 const apiBase = `${N8N_API_URL.replace(/\/$/, "")}/api/v1`;
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = parseTimeoutMs(process.env.N8N_TIMEOUT_MS);
 
 const n8nFetch: FetchFn = (path, options = {}) => {
   const controller = new AbortController();
@@ -92,7 +154,7 @@ const n8nFetch: FetchFn = (path, options = {}) => {
     ...options,
     signal: options.signal ?? controller.signal,
     headers: {
-      "X-N8N-API-KEY": N8N_API_KEY,
+      ...authHeaders,
       "Content-Type": "application/json",
       ...options.headers,
     },
@@ -113,6 +175,11 @@ registerCredentialTools(server, n8nFetch);
 registerUserTools(server, n8nFetch);
 
 async function main() {
+  const result = await checkConnection(n8nFetch);
+  if (!result.ok) {
+    console.error(`n8n connection check failed: ${result.error}`);
+    process.exit(1);
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("@thecodesaiyan/tcs-n8n-mcp v1.1.0 running on stdio (22 tools)");
