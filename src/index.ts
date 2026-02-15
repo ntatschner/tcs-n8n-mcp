@@ -37,7 +37,7 @@ const n8nFetch: FetchFn = (path, options = {}) => {
 
 const server = new McpServer({
   name: "@thecodesaiyan/tcs-n8n-mcp",
-  version: "1.0.2",
+  version: "1.0.3",
 });
 
 // Register all tool modules
@@ -51,7 +51,7 @@ registerUserTools(server, n8nFetch);
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("@thecodesaiyan/tcs-n8n-mcp v1.0.2 running on stdio (22 tools)");
+  console.error("@thecodesaiyan/tcs-n8n-mcp v1.0.3 running on stdio (22 tools)");
 }
 
 main().catch((error) => {
