@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -20,3 +23,28 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+
+  release:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for new version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v${VERSION}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"
