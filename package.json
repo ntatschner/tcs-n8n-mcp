@@ -1,0 +1,57 @@
+{
+  "name": "@thecodesaiyan/n8n-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for n8n workflow automation. Manage workflows, executions, tags, variables, credentials and users via the Model Context Protocol.",
+  "type": "module",
+  "main": "build/index.js",
+  "bin": {
+    "tcs-n8n-mcp": "build/index.js"
+  },
+  "files": [
+    "build/**/*.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "n8n",
+    "workflow",
+    "automation",
+    "ai",
+    "llm",
+    "claude",
+    "mcp-server"
+  ],
+  "author": "ntatschner",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ntatschner/tcs-n8n-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ntatschner/tcs-n8n-mcp/issues"
+  },
+  "homepage": "https://github.com/ntatschner/tcs-n8n-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.0"
+  }
+}
