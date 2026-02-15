@@ -1,5 +1,7 @@
 # tcs-n8n-mcp
 
+By [@TheCodeSaiyan](https://github.com/ntatschner)
+
 An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server for managing [n8n](https://n8n.io) workflow automation instances. Provides 22 tools for workflows, executions, tags, variables, credentials, and users.
 
 ## Quick Start
