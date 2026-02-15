@@ -1,6 +1,6 @@
 {
   "name": "@thecodesaiyan/tcs-n8n-mcp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "MCP server for n8n workflow automation. Manage workflows, executions, tags, variables, credentials and users via the Model Context Protocol.",
   "type": "module",
   "main": "build/index.js",
