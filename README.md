@@ -42,18 +42,17 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full c
 ### Quick Start
 
 ```bash
-npx @thecodesaiyan/tcs-n8n-mcp
-```
-
-### Interactive Setup Wizard
-
-The setup wizard walks you through configuration and tests your connection:
-
-```bash
 npx @thecodesaiyan/tcs-n8n-mcp --setup
 ```
 
-It will prompt for your n8n URL, auth type, and credentials, then output ready-to-paste config for your MCP client.
+The setup wizard walks you through configuration, tests your connection, and outputs ready-to-paste config for your MCP client.
+
+> **Windows users:** `npx` cannot resolve bin commands from scoped packages on Windows. Install globally instead:
+>
+> ```bash
+> npm install -g @thecodesaiyan/tcs-n8n-mcp
+> tcs-n8n-mcp --setup
+> ```
 
 ### Environment Variables
 
@@ -86,13 +85,24 @@ npx @thecodesaiyan/tcs-n8n-mcp --setup
 
 #### Option B: CLI command
 
+**macOS / Linux:**
+
 ```bash
 claude mcp add n8n -e N8N_API_URL=http://localhost:5678 -e N8N_API_KEY=your-api-key -- npx -y @thecodesaiyan/tcs-n8n-mcp
+```
+
+**Windows** (install globally first):
+
+```bash
+npm install -g @thecodesaiyan/tcs-n8n-mcp
+claude mcp add n8n -e N8N_API_URL=http://localhost:5678 -e N8N_API_KEY=your-api-key -- tcs-n8n-mcp
 ```
 
 #### Option C: Manual config
 
 Add to `~/.claude.json`:
+
+**macOS / Linux:**
 
 ```json
 {
@@ -100,6 +110,23 @@ Add to `~/.claude.json`:
     "n8n": {
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+**Windows:**
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
       "env": {
         "N8N_API_KEY": "your-api-key-here",
         "N8N_API_URL": "http://localhost:5678"
@@ -122,12 +149,31 @@ Add to your Claude Desktop config file:
 | macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
+**macOS / Linux:**
+
 ```json
 {
   "mcpServers": {
     "n8n": {
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+**Windows** (run `npm install -g @thecodesaiyan/tcs-n8n-mcp` first):
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
       "env": {
         "N8N_API_KEY": "your-api-key-here",
         "N8N_API_URL": "http://localhost:5678"
@@ -146,12 +192,31 @@ Add to your Claude Desktop config file:
 
 Add to `.vscode/mcp.json` in your project, or use **Command Palette** > `MCP: Open User Configuration`:
 
+**macOS / Linux:**
+
 ```json
 {
   "servers": {
     "n8n": {
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+**Windows** (run `npm install -g @thecodesaiyan/tcs-n8n-mcp` first):
+
+```json
+{
+  "servers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
       "env": {
         "N8N_API_KEY": "your-api-key-here",
         "N8N_API_URL": "http://localhost:5678"
@@ -168,12 +233,31 @@ Add to `.vscode/mcp.json` in your project, or use **Command Palette** > `MCP: Op
 
 Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project-level):
 
+**macOS / Linux:**
+
 ```json
 {
   "mcpServers": {
     "n8n": {
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+**Windows** (run `npm install -g @thecodesaiyan/tcs-n8n-mcp` first):
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
       "env": {
         "N8N_API_KEY": "your-api-key-here",
         "N8N_API_URL": "http://localhost:5678"
@@ -195,12 +279,31 @@ Add to your Windsurf config file:
 | Windows | `%USERPROFILE%\.codeium\windsurf\mcp_config.json` |
 | macOS / Linux | `~/.codeium/windsurf/mcp_config.json` |
 
+**macOS / Linux:**
+
 ```json
 {
   "mcpServers": {
     "n8n": {
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+**Windows** (run `npm install -g @thecodesaiyan/tcs-n8n-mcp` first):
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
       "env": {
         "N8N_API_KEY": "your-api-key-here",
         "N8N_API_URL": "http://localhost:5678"
@@ -217,6 +320,8 @@ Add to your Windsurf config file:
 
 Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 
+**macOS / Linux:**
+
 ```json
 {
   "mcpServers": {
@@ -232,7 +337,22 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 }
 ```
 
-> **Windows**: If you encounter spawn errors, use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@thecodesaiyan/tcs-n8n-mcp"]`.
+**Windows** (run `npm install -g @thecodesaiyan/tcs-n8n-mcp` first):
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "tcs-n8n-mcp",
+      "args": [],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
 
 </details>
 
