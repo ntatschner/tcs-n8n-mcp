@@ -12,12 +12,13 @@ import { registerUserTools } from "./tools/users.js";
 import { parseAuthType, buildAuthHeaders, parseTimeoutMs, checkConnection } from "./config.js";
 import type { AuthType } from "./config.js";
 
-// --- Interactive setup mode ---
-if (process.argv.includes("--setup")) {
-  runSetup().then(() => process.exit(0)).catch((e) => {
+// --- Interactive setup: --setup flag OR missing config in a TTY ---
+if (process.argv.includes("--setup") || (!process.env.N8N_API_KEY && process.stdin.isTTY)) {
+  await runSetup().catch((e) => {
     console.error("Setup failed:", e);
     process.exit(1);
   });
+  process.exit(0);
 }
 
 async function runSetup(): Promise<void> {
@@ -125,7 +126,8 @@ const N8N_API_KEY = process.env.N8N_API_KEY || "";
 const N8N_API_USER = process.env.N8N_API_USER || "";
 
 if (!N8N_API_KEY) {
-  console.error("N8N_API_KEY environment variable is required");
+  console.error("N8N_API_KEY environment variable is required.");
+  console.error("Tip: run `npx @thecodesaiyan/tcs-n8n-mcp --setup` for interactive configuration.");
   process.exit(1);
 }
 
