@@ -11,6 +11,8 @@ import { registerCredentialTools } from "./tools/credentials.js";
 import { registerUserTools } from "./tools/users.js";
 import { parseAuthType, buildAuthHeaders, parseTimeoutMs, checkConnection } from "./config.js";
 import type { AuthType } from "./config.js";
+import { detectClients, buildMcpConfig, integrateClient, manualSnippet } from "./setup.js";
+import type { ClientInfo } from "./setup.js";
 
 // --- Interactive setup: --setup flag OR missing config in a TTY ---
 if (process.argv.includes("--setup") || (!process.env.N8N_API_KEY && process.stdin.isTTY)) {
@@ -50,7 +52,6 @@ async function runSetup(): Promise<void> {
 
   const credentialLabel = authType === "basic" ? "Password" : "API Key";
   const apiKey = (await rl.question(`  n8n ${credentialLabel}: `)).trim();
-  rl.close();
 
   if (!apiKey) {
     console.error(
@@ -58,6 +59,7 @@ async function runSetup(): Promise<void> {
         ? "\n  Password is required.\n"
         : "\n  API key is required. Generate one in n8n: Settings > API > Create API Key\n",
     );
+    rl.close();
     process.exit(1);
   }
 
@@ -94,39 +96,104 @@ async function runSetup(): Promise<void> {
     env.N8N_API_USER = apiUser;
   }
 
-  const pkg = "@thecodesaiyan/tcs-n8n-mcp";
   const isWindows = process.platform === "win32";
-
-  const stdioCfg = isWindows
-    ? { command: "tcs-n8n-mcp", args: [] as string[], env }
-    : { command: "npx", args: ["-y", pkg], env };
-
-  const envFlags = Object.entries(env)
-    .map(([k, v]) => `-e ${k}=${v}`)
-    .join(" ");
+  const mcpConfig = buildMcpConfig(process.platform, env);
 
   if (isWindows) {
     console.log("  ── Prerequisites (Windows) ──");
-    console.log(`  npm install -g ${pkg}\n`);
+    console.log("  npm install -g @thecodesaiyan/tcs-n8n-mcp\n");
   }
 
-  console.log("  ── Claude Code ──");
-  if (isWindows) {
-    console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- tcs-n8n-mcp\n`);
-  } else {
-    console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- npx -y ${pkg}\n`);
+  // Detect installed clients
+  const clients = detectClients();
+
+  if (clients.length === 0) {
+    console.log("  No MCP clients detected. Manual config snippets:\n");
+    printManualSnippets(mcpConfig);
+    rl.close();
+    return;
   }
 
-  console.log("  ── Claude Desktop / Windsurf ──");
-  console.log("  Add to your config JSON under \"mcpServers\":\n");
-  console.log(`  "tcs-n8n-mcp": ${JSON.stringify(stdioCfg, null, 4)}\n`);
+  // Display detected clients
+  console.log("  Detected MCP clients:\n");
+  clients.forEach((c, i) => {
+    const modeLabel = c.mode === "json" ? "auto" : c.mode === "cli" ? "CLI" : "manual";
+    console.log(`    ${i + 1}. ${c.name} (${modeLabel})`);
+  });
+  console.log();
 
-  console.log("  ── Cursor ──");
-  console.log("  Add to .cursor/mcp.json under \"mcpServers\":\n");
-  console.log(`  "tcs-n8n-mcp": ${JSON.stringify(stdioCfg, null, 4)}\n`);
+  const answer = (
+    await rl.question("  Configure which? (1,2,... or 'all' or 'none') [all]: ")
+  ).trim().toLowerCase() || "all";
 
-  console.log("  Note: The above snippets contain your credentials.");
+  if (answer === "none") {
+    console.log("\n  Skipped. Manual config snippets:\n");
+    printManualSnippets(mcpConfig);
+    rl.close();
+    return;
+  }
+
+  const selected = selectClients(clients, answer);
+
+  if (selected.length === 0) {
+    console.log("\n  No valid selection. Manual config snippets:\n");
+    printManualSnippets(mcpConfig);
+    rl.close();
+    return;
+  }
+
+  console.log();
+  for (const client of selected) {
+    if (client.mode === "manual") {
+      console.log(`  ── ${client.name} (manual) ──`);
+      console.log(`  ${manualSnippet(client, mcpConfig)}\n`);
+      continue;
+    }
+
+    const result = integrateClient(client, mcpConfig);
+    if (result.ok) {
+      console.log(`  ✓ ${client.name}: ${result.action}`);
+    } else {
+      console.log(`  ✗ ${client.name}: ${result.reason}`);
+      console.log(`    Manual fallback:`);
+      console.log(`    ${manualSnippet(client, mcpConfig)}\n`);
+    }
+  }
+
+  console.log("\n  Note: Config entries contain your credentials.");
   console.log("  Avoid sharing them in public channels or screenshots.\n");
+
+  rl.close();
+}
+
+function selectClients(
+  clients: readonly ClientInfo[],
+  answer: string,
+): readonly ClientInfo[] {
+  if (answer === "all") return clients;
+
+  const indices = answer
+    .split(/[,\s]+/)
+    .map((s) => parseInt(s, 10) - 1)
+    .filter((i) => i >= 0 && i < clients.length);
+
+  return indices.map((i) => clients[i]);
+}
+
+function printManualSnippets(config: ReturnType<typeof buildMcpConfig>): void {
+  const stdioCfg = JSON.stringify(config, null, 4);
+  console.log("  ── Claude Desktop / Windsurf / Cursor ──");
+  console.log(`  Add to config JSON under "mcpServers":\n`);
+  console.log(`  "tcs-n8n-mcp": ${stdioCfg}\n`);
+
+  const envFlags = Object.entries(config.env)
+    .map(([k, v]) => `-e ${k}=${v}`)
+    .join(" ");
+  const cmd = config.command === "tcs-n8n-mcp"
+    ? `claude mcp add tcs-n8n-mcp ${envFlags} -- tcs-n8n-mcp`
+    : `claude mcp add tcs-n8n-mcp ${envFlags} -- npx -y @thecodesaiyan/tcs-n8n-mcp`;
+  console.log("  ── Claude Code ──");
+  console.log(`  ${cmd}\n`);
 }
 
 // --- Normal MCP server mode ---
