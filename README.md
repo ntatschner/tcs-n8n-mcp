@@ -4,9 +4,17 @@ By [@TheCodeSaiyan](https://github.com/ntatschner)
 
 An [MCP](https://modelcontextprotocol.io) (Model Context Protocol) server for managing [n8n](https://n8n.io) workflow automation instances. Provides 22 tools for workflows, executions, tags, variables, credentials, and users.
 
-## Quick Start
+## Installation
 
-Add to your MCP client configuration:
+### Claude Code
+
+Run the CLI command:
+
+```bash
+claude mcp add n8n -- npx -y @thecodesaiyan/tcs-n8n-mcp
+```
+
+Or add to `~/.claude.json`:
 
 ```json
 {
@@ -15,23 +23,117 @@ Add to your MCP client configuration:
       "command": "npx",
       "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
       "env": {
-        "N8N_API_URL": "http://localhost:5678",
-        "N8N_API_KEY": "your-api-key-here"
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
       }
     }
   }
 }
 ```
 
-### Claude Code
+### Claude Desktop
 
-Add to `~/.claude.json` under `mcpServers`, or run:
+Add to your config file:
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-```bash
-claude mcp add n8n -- npx -y @thecodesaiyan/tcs-n8n-mcp
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
 ```
 
-Then set the environment variables `N8N_API_URL` and `N8N_API_KEY`.
+Restart Claude Desktop after saving.
+
+### VS Code (Copilot)
+
+Add to `.vscode/mcp.json` in your project, or open user config via Command Palette > `MCP: Open User Configuration`:
+
+```json
+{
+  "servers": {
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+### Windsurf
+
+Add to your config file:
+- **Windows**: `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
+- **macOS/Linux**: `~/.codeium/windsurf/mcp_config.json`
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+### Cline
+
+Open MCP Servers > Configure > Advanced MCP Settings, and add:
+
+```json
+{
+  "mcpServers": {
+    "n8n": {
+      "command": "npx",
+      "args": ["-y", "@thecodesaiyan/tcs-n8n-mcp"],
+      "env": {
+        "N8N_API_KEY": "your-api-key-here",
+        "N8N_API_URL": "http://localhost:5678"
+      }
+    }
+  }
+}
+```
+
+> **Windows note**: If you encounter spawn errors with npx, use `"command": "cmd"` with `"args": ["/c", "npx", "-y", "@thecodesaiyan/tcs-n8n-mcp"]` instead.
 
 ## Environment Variables
 
