@@ -95,18 +95,27 @@ async function runSetup(): Promise<void> {
   }
 
   const pkg = "@thecodesaiyan/tcs-n8n-mcp";
-  const stdioCfg = {
-    command: "npx",
-    args: ["-y", pkg],
-    env,
-  };
+  const isWindows = process.platform === "win32";
+
+  const stdioCfg = isWindows
+    ? { command: "tcs-n8n-mcp", args: [] as string[], env }
+    : { command: "npx", args: ["-y", pkg], env };
 
   const envFlags = Object.entries(env)
     .map(([k, v]) => `-e ${k}=${v}`)
     .join(" ");
 
+  if (isWindows) {
+    console.log("  ── Prerequisites (Windows) ──");
+    console.log(`  npm install -g ${pkg}\n`);
+  }
+
   console.log("  ── Claude Code ──");
-  console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- npx -y ${pkg}\n`);
+  if (isWindows) {
+    console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- tcs-n8n-mcp\n`);
+  } else {
+    console.log(`  claude mcp add tcs-n8n-mcp ${envFlags} -- npx -y ${pkg}\n`);
+  }
 
   console.log("  ── Claude Desktop / Windsurf ──");
   console.log("  Add to your config JSON under \"mcpServers\":\n");
@@ -165,7 +174,7 @@ const n8nFetch: FetchFn = (path, options = {}) => {
 
 const server = new McpServer({
   name: "@thecodesaiyan/tcs-n8n-mcp",
-  version: "1.1.1",
+  version: "1.2.0",
 });
 
 // Register all tool modules
@@ -184,7 +193,7 @@ async function main() {
   }
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("@thecodesaiyan/tcs-n8n-mcp v1.1.1 running on stdio (22 tools)");
+  console.error("@thecodesaiyan/tcs-n8n-mcp v1.2.0 running on stdio (22 tools)");
 }
 
 main().catch((error) => {
