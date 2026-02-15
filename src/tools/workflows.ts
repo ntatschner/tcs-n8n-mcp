@@ -13,9 +13,9 @@ const nodeSchema = z.object({
   type: z.string(),
   typeVersion: z.number(),
   position: z.tuple([z.number(), z.number()]),
-  parameters: z.record(z.unknown()).optional().default({}),
+  parameters: z.record(z.string(), z.unknown()).optional().default({}),
   onError: z.string().optional().describe("Error handling: 'continueRegularOutput' | 'continueErrorOutput' | 'stopWorkflow'"),
-  credentials: z.record(z.unknown()).optional().describe("Credential references for this node"),
+  credentials: z.record(z.string(), z.unknown()).optional().describe("Credential references for this node"),
   webhookId: z.string().optional().describe("Webhook ID for trigger nodes"),
 });
 
@@ -72,8 +72,8 @@ export function registerWorkflowTools(server: McpServer, n8nFetch: FetchFn) {
     {
       name: z.string().describe("Workflow name"),
       nodes: z.array(nodeSchema).optional().describe("Array of workflow nodes (defaults to Manual Trigger)"),
-      connections: z.record(z.unknown()).optional().default({}).describe("Node connections mapping"),
-      settings: z.record(z.unknown()).optional().default({}).describe("Workflow settings"),
+      connections: z.record(z.string(), z.unknown()).optional().default({}).describe("Node connections mapping"),
+      settings: z.record(z.string(), z.unknown()).optional().default({}).describe("Workflow settings"),
     },
     async ({ name, nodes, connections, settings }) => {
       const defaultNodes = [
@@ -105,8 +105,8 @@ export function registerWorkflowTools(server: McpServer, n8nFetch: FetchFn) {
       workflowId: n8nId.describe("ID of the workflow to update"),
       name: z.string().optional().describe("New workflow name"),
       nodes: z.array(nodeSchema).optional().describe("Updated nodes array"),
-      connections: z.record(z.unknown()).optional().describe("Updated connections"),
-      settings: z.record(z.unknown()).optional().describe("Updated settings"),
+      connections: z.record(z.string(), z.unknown()).optional().describe("Updated connections"),
+      settings: z.record(z.string(), z.unknown()).optional().describe("Updated settings"),
     },
     async ({ workflowId, name, nodes, connections, settings }) => {
       const getRes = await n8nFetch(`/workflows/${workflowId}`);
