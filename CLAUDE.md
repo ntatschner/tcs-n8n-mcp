@@ -12,6 +12,7 @@ MCP server for n8n workflow automation. Published to npm under @thecodesaiyan or
 
 ## Architecture
 - `src/index.ts` - Entry point, shebang, fetch wrapper with 30s timeout
+- `src/setup.ts` - Setup wizard client detection, JSON config integration, manual snippets
 - `src/config.ts` - Auth parsing, header building, timeout config, connection check
 - `src/types.ts` - FetchFn type, MCP response helpers (ok/err/handleError/safeJson), n8n API interfaces
 - `src/validation.ts` - Zod schemas for ID validation (path traversal prevention)
@@ -26,7 +27,7 @@ MCP server for n8n workflow automation. Published to npm under @thecodesaiyan or
 - Scoped package: requires `npm publish --access public`
 - Uses granular npm token with 2FA bypass
 - CI publishes automatically on GitHub release via `.github/workflows/publish.yml`
-- Bump version in both `package.json` AND `src/index.ts` (server name + log message)
+- **ALWAYS bump version** in both `package.json` AND `src/index.ts` (server version + log message) as part of any feature/fix commit
 
 ## Platform Notes
 - ES module (`"type": "module"`) — top-level `await` is supported; prefer it over fire-and-forget `.then()`
