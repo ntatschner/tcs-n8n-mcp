@@ -6,13 +6,13 @@
 
 [![npm version](https://img.shields.io/npm/v/@thecodesaiyan/tcs-n8n-mcp?color=blue&label=npm)](https://www.npmjs.com/package/@thecodesaiyan/tcs-n8n-mcp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.14-brightgreen)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-purple)](https://modelcontextprotocol.io)
 [![CI](https://github.com/ntatschner/tcs-n8n-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ntatschner/tcs-n8n-mcp/actions/workflows/ci.yml)
 
-An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full control over your [n8n](https://n8n.io) workflow automation platform. List, create, update, execute, and manage workflows, executions, tags, variables, credentials, and users — all through natural language.
+An [MCP](https://modelcontextprotocol.io) server for managing supported parts of the [n8n](https://n8n.io) public API. It exposes workflows, executions, tags, variables, credential metadata, and users to MCP clients through typed, structured tools.
 
-[Installation](#installation) · [Tools](#available-tools-22) · [Security](#security) · [Development](#development)
+[Installation](#installation) · [Tools](#available-tools-21) · [Security](#security) · [Development](#development)
 
 </div>
 
@@ -20,18 +20,19 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full c
 
 ## Features
 
-- **22 tools** covering the full n8n REST API
+- **21 tools** for common n8n public API operations
 - **Works everywhere** — Claude Code, Claude Desktop, VS Code, Cursor, Windsurf, Cline
-- **Secure by default** — ID validation, sanitised errors, masked secrets, request timeouts
-- **Flexible authentication** — API key (default), Bearer token, or Basic Auth
+- **Modern MCP responses** — MCP SDK v2, structured content, output schemas, and tool safety annotations
+- **Secure by default** — encoded resource IDs, sanitised errors, bounded responses, and request timeouts
+- **Flexible authentication** — n8n API key (default), with Bearer and Basic modes for compatible proxies/deployments
 - **Zero config** — just provide your n8n API key and go
-- **Lightweight** — under 30KB, no runtime dependencies beyond the MCP SDK and Zod
+- **Focused dependencies** — runtime dependencies are limited to the MCP server SDK and Zod
 
 ---
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org) >= 18
+- [Node.js](https://nodejs.org) >= 22.14 (Node 24 LTS is recommended)
 - An [n8n](https://n8n.io) instance (self-hosted or cloud)
 - An n8n API key ([how to create one](https://docs.n8n.io/api/authentication/))
 
@@ -45,7 +46,7 @@ An [MCP](https://modelcontextprotocol.io) server that gives AI assistants full c
 npx @thecodesaiyan/tcs-n8n-mcp --setup
 ```
 
-The setup wizard walks you through configuration, tests your connection, and outputs ready-to-paste config for your MCP client.
+The setup wizard walks you through configuration, reads the API key or password without terminal echo, tests your connection, and configures detected clients. Printed fallback snippets use a `<set-in-client-config>` placeholder so credentials are not written to terminal logs.
 
 > **Windows users:** `npx` cannot resolve bin commands from scoped packages on Windows. Install globally instead:
 >
@@ -59,7 +60,7 @@ The setup wizard walks you through configuration, tests your connection, and out
 | Variable | Required | Default | Description |
 |----------|:--------:|---------|-------------|
 | `N8N_API_KEY` | Yes | — | Your n8n API key (or password for basic auth) |
-| `N8N_API_URL` | No | `http://localhost:5678` | Base URL of your n8n instance |
+| `N8N_API_URL` | No | `http://localhost:5678` | Absolute HTTP(S) URL for your n8n instance; either the instance root or a URL ending in `/api/v1` |
 | `N8N_AUTH_TYPE` | No | `apikey` | Authentication method: `apikey`, `bearer`, or `basic` |
 | `N8N_API_USER` | Only for `basic` | — | Username for basic authentication |
 | `N8N_TIMEOUT_MS` | No | `30000` | Request timeout in milliseconds |
@@ -67,8 +68,10 @@ The setup wizard walks you through configuration, tests your connection, and out
 #### Authentication Types
 
 - **`apikey`** (default) — Sends `X-N8N-API-KEY` header. This is n8n's standard API authentication.
-- **`bearer`** — Sends `Authorization: Bearer <token>` header.
-- **`basic`** — Sends `Authorization: Basic <base64>` header. Requires `N8N_API_USER` to be set.
+- **`bearer`** — Sends `Authorization: Bearer <token>`, for deployments or reverse proxies that accept it.
+- **`basic`** — Sends `Authorization: Basic <base64>`, for compatible deployments or reverse proxies. Requires `N8N_API_USER`.
+
+`N8N_API_URL` must not contain embedded credentials, a query string, or a fragment. The server normalises the URL so `/api/v1` is appended exactly once.
 
 ---
 
@@ -358,28 +361,29 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 
 ---
 
-## Available Tools (22)
+## Available Tools (21)
 
-### Workflows (8)
+### Workflows (7)
 
 | Tool | Description |
 |:-----|:------------|
 | `list_workflows` | List all workflows with pagination |
-| `get_workflow` | Get full workflow details including nodes, connections, and settings |
+| `get_workflow` | Get safe workflow metadata; set `includeRawData: true` to opt into untrusted raw fields |
 | `create_workflow` | Create a new workflow with optional nodes and connections |
 | `update_workflow` | Update an existing workflow's name, nodes, connections, or settings |
-| `delete_workflow` | Permanently delete a workflow |
+| `delete_workflow` | Permanently delete a workflow after explicit confirmation |
 | `activate_workflow` | Activate a workflow so it runs on its configured triggers |
 | `deactivate_workflow` | Deactivate a workflow to stop trigger-based execution |
-| `execute_workflow` | Execute a workflow immediately and return the execution ID |
+
+The n8n public API does not expose a portable `POST /workflows/{id}/execute` operation, so this package does not offer direct workflow execution. To run a workflow on demand, expose and call a webhook trigger or use an n8n-supported test/execution facility appropriate to your deployment.
 
 ### Executions (3)
 
 | Tool | Description |
 |:-----|:------------|
 | `list_executions` | List executions with optional filters for workflow ID and status |
-| `get_execution` | Get full execution details including per-node results and errors |
-| `delete_execution` | Delete an execution record |
+| `get_execution` | Get safe execution metadata; `includeData: true` opts into untrusted node data |
+| `delete_execution` | Delete an execution record after explicit confirmation |
 
 ### Tags (4)
 
@@ -388,7 +392,7 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 | `list_tags` | List all tags used for organising workflows |
 | `create_tag` | Create a new tag |
 | `update_tag` | Rename an existing tag |
-| `delete_tag` | Delete a tag |
+| `delete_tag` | Delete a tag after explicit confirmation |
 
 ### Variables (4)
 
@@ -397,7 +401,7 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 | `list_variables` | List all environment variables (values are masked for security) |
 | `create_variable` | Create a new key-value environment variable |
 | `update_variable` | Update an existing variable's key or value |
-| `delete_variable` | Delete an environment variable |
+| `delete_variable` | Delete an environment variable after explicit confirmation |
 
 ### Credentials (1)
 
@@ -418,14 +422,20 @@ Open **MCP Servers** > **Configure** > **Advanced MCP Settings** and add:
 
 | Protection | Description |
 |:-----------|:------------|
-| **ID Validation** | All resource IDs are validated as numeric strings to prevent path traversal attacks |
-| **Error Sanitisation** | API error responses only return HTTP status codes, never raw response bodies |
+| **Resource IDs** | Opaque n8n IDs are accepted and URL-encoded as individual path segments; execution IDs remain numeric |
+| **Destructive confirmation** | Delete tools require an explicit `confirm: true` argument and are marked destructive |
+| **Error Sanitisation** | API failures return bounded, actionable details without dumping arbitrary response bodies |
 | **Secret Masking** | Variable values are hidden in list output to prevent accidental secret exposure |
 | **Request Timeout** | All API calls have a configurable timeout (default 30s) to prevent hanging connections |
-| **No Key Logging** | API keys are never logged, echoed, or included in tool output |
+| **Credential handling** | Interactive credential entry is hidden; client config files are atomically replaced with mode `0600` on POSIX |
 | **Credential Safety** | The credentials tool only returns metadata — secrets are never exposed |
-| **Startup Validation** | Credentials and connectivity are verified on startup before accepting any requests |
+| **Redirect Safety** | API redirects are refused so custom authentication headers cannot cross origins |
+| **Response Limits** | API bodies are byte-limited before JSON parsing; model-visible results are separately bounded |
 | **Header Injection Prevention** | Basic auth credentials are validated to reject control characters |
+
+MCP client configuration stores `N8N_API_KEY` (or the Basic password) in plaintext because stdio clients pass credentials through environment variables. Restrict access to these files. Automatic setup tightens the resulting file to `0600` on POSIX; Windows users should verify the file ACL. Printed manual snippets contain a credential placeholder, never the entered secret.
+
+Tool results are bounded to protect the model context. Use pagination and request execution data only when needed. The server supports the documented tools above, not the entire n8n REST API; availability can also vary by n8n edition and version.
 
 ---
 
@@ -463,18 +473,26 @@ N8N_AUTH_TYPE=basic N8N_API_USER=admin N8N_API_KEY=password N8N_API_URL=http://l
 
 ```
 src/
-  index.ts              Entry point, fetch wrapper, server setup
+  index.ts              Thin CLI and stdio entry point
+  server.ts             MCP server factory and tool registration
+  client.ts             Normalised, timeout-aware n8n API client
   config.ts             Auth type parsing, header building, timeout, connection check
-  types.ts              Shared types, interfaces, response helpers
+  types.ts              Shared types, response validation and bounded output helpers
   validation.ts         Zod schemas for input validation
   tools/
-    workflows.ts        Workflow CRUD, activation, execution
+    workflows.ts        Workflow CRUD and activation
     executions.ts       Execution listing and management
     tags.ts             Tag CRUD operations
     variables.ts        Environment variable management
     credentials.ts      Credential metadata listing
     users.ts            User listing and details
 ```
+
+### Publishing
+
+Releases are tag-driven. Set `package.json` to the intended version, then push the matching `v<version>` tag. CI verifies that the tag exactly matches `package.json`, runs the supported Node matrix, coverage, audit, pack, and installed-tarball smoke checks, publishes to npm, and only then creates the GitHub release.
+
+The npm package must have a trusted publisher configured for this GitHub repository and `.github/workflows/ci.yml`. Publishing uses GitHub Actions OIDC with provenance and does not use a long-lived `NPM_TOKEN`.
 
 ---
 

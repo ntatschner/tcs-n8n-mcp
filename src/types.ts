@@ -1,9 +1,52 @@
+import type { z } from "zod";
+
 export type FetchFn = (path: string, options?: RequestInit) => Promise<Response>;
+
+export const MAX_RESPONSE_CHARS = 25_000;
+export const MAX_RESPONSE_BYTES = 2_000_000;
+
+type StructuredContent = Record<string, unknown>;
+
+function jsonText(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return JSON.stringify({ error: "Response could not be serialized" });
+  }
+}
+
+export function structuredOk(
+  value: StructuredContent,
+  maxChars = MAX_RESPONSE_CHARS,
+) {
+  const serialized = jsonText(value);
+  if (serialized.length <= maxChars) {
+    return {
+      content: [{ type: "text" as const, text: serialized }],
+      structuredContent: value,
+    };
+  }
+
+  const metadata: StructuredContent = {
+    truncated: true,
+    originalCharacters: serialized.length,
+    message: "Response exceeded the safe output limit. Use pagination or narrower filters.",
+  };
+  const metadataText = jsonText(metadata);
+  return {
+    content: [{ type: "text" as const, text: metadataText.slice(0, maxChars) }],
+    structuredContent: metadata,
+  };
+}
 
 // --- MCP response helpers ---
 
-export function ok(msg: string) {
-  return { content: [{ type: "text" as const, text: msg }] };
+export function ok(value: unknown, maxChars = MAX_RESPONSE_CHARS) {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return structuredOk(value as StructuredContent, maxChars);
+  }
+  const text = typeof value === "string" ? value : jsonText(value);
+  return { content: [{ type: "text" as const, text: text.slice(0, maxChars) }] };
 }
 
 export function err(msg: string) {
@@ -16,12 +59,54 @@ export async function handleError(res: Response, action: string) {
   return err(`Error ${action}: HTTP ${status} ${statusText}`);
 }
 
-export async function safeJson<T>(res: Response): Promise<T | null> {
+async function readBoundedText(res: Response, maxBytes: number): Promise<string | null> {
+  const declaredLength = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) return null;
+  if (!res.body) return "";
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = "";
   try {
-    return (await res.json()) as T;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel("Response body exceeded the configured byte limit");
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export async function safeJson<T>(
+  res: Response,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<T | null> {
+  try {
+    const text = await readBoundedText(res, maxBytes);
+    if (text === null || text.trim().length === 0) return null;
+    return JSON.parse(text) as T;
   } catch {
     return null;
   }
+}
+
+export async function parseJson<T>(
+  res: Response,
+  schema: z.ZodType<T>,
+): Promise<T | null> {
+  const value = await safeJson<unknown>(res);
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 // --- n8n API response interfaces ---

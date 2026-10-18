@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createInterface } from "node:readline/promises";
+import { checkConnection, readSecret } from "./config.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
@@ -9,6 +11,8 @@ import {
   buildMcpConfig,
   integrateClient,
   manualSnippet,
+  runSetup,
+  writeSecureJson,
 } from "./setup.js";
 import type { ClientInfo, McpEntry } from "./setup.js";
 
@@ -24,6 +28,9 @@ vi.mock("node:fs", async () => {
     mkdirSync: vi.fn(),
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
+    chmodSync: vi.fn(),
+    renameSync: vi.fn(),
+    unlinkSync: vi.fn(),
   };
 });
 
@@ -31,7 +38,18 @@ vi.mock("node:child_process", async () => {
   const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
   return {
     ...actual,
-    execSync: vi.fn(),
+    execFileSync: vi.fn(),
+  };
+});
+
+vi.mock("node:readline/promises", () => ({ createInterface: vi.fn() }));
+
+vi.mock("./config.js", async () => {
+  const actual = await vi.importActual<typeof import("./config.js")>("./config.js");
+  return {
+    ...actual,
+    checkConnection: vi.fn(),
+    readSecret: vi.fn(),
   };
 });
 
@@ -39,7 +57,12 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockMkdirSync = vi.mocked(mkdirSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
-const mockExecSync = vi.mocked(execSync);
+const mockChmodSync = vi.mocked(chmodSync);
+const mockRenameSync = vi.mocked(renameSync);
+const mockExecFileSync = vi.mocked(execFileSync);
+const mockCreateInterface = vi.mocked(createInterface);
+const mockCheckConnection = vi.mocked(checkConnection);
+const mockReadSecret = vi.mocked(readSecret);
 
 const sampleEnv: Record<string, string> = {
   N8N_API_URL: "http://localhost:5678",
@@ -106,7 +129,7 @@ describe("detectClients", () => {
       if (typeof p === "string" && p.includes("Claude")) return true;
       return false;
     });
-    mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
 
     const clients = detectClients("darwin");
     const claude = clients.find((c) => c.name === "Claude Desktop");
@@ -120,7 +143,7 @@ describe("detectClients", () => {
       if (typeof p === "string" && p.includes(".cursor")) return true;
       return false;
     });
-    mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
 
     const clients = detectClients("darwin");
     const cursor = clients.find((c) => c.name === "Cursor");
@@ -134,7 +157,7 @@ describe("detectClients", () => {
       if (typeof p === "string" && p.includes(".codeium")) return true;
       return false;
     });
-    mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
 
     const clients = detectClients("linux");
     const windsurf = clients.find((c) => c.name === "Windsurf");
@@ -144,17 +167,22 @@ describe("detectClients", () => {
 
   it("detects Claude Code when CLI is available", () => {
     mockExistsSync.mockReturnValue(false);
-    mockExecSync.mockReturnValue(Buffer.from("1.0.0"));
+    mockExecFileSync.mockReturnValue(Buffer.from("1.0.0"));
 
     const clients = detectClients("darwin");
     const claudeCode = clients.find((c) => c.name === "Claude Code");
     expect(claudeCode).toBeDefined();
     expect(claudeCode!.mode).toBe("cli");
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "claude",
+      ["--version"],
+      expect.objectContaining({ shell: false }),
+    );
   });
 
   it("skips Claude Code when CLI is not available", () => {
     mockExistsSync.mockReturnValue(false);
-    mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
 
     const clients = detectClients("darwin");
     const claudeCode = clients.find((c) => c.name === "Claude Code");
@@ -163,7 +191,7 @@ describe("detectClients", () => {
 
   it("always includes VS Code / Cline as manual", () => {
     mockExistsSync.mockReturnValue(false);
-    mockExecSync.mockImplementation(() => { throw new Error("not found"); });
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
 
     const clients = detectClients("darwin");
     const vscode = clients.find((c) => c.name === "VS Code / Cline");
@@ -190,6 +218,9 @@ describe("integrateClient (json)", () => {
     expect(result).toEqual({ ok: true, action: "added" });
     expect(mockMkdirSync).toHaveBeenCalledWith("/tmp", { recursive: true });
     expect(mockWriteFileSync).toHaveBeenCalledOnce();
+    expect(mockWriteFileSync.mock.calls[0][2]).toEqual({
+      encoding: "utf-8", mode: 0o600, flag: "wx",
+    });
 
     const written = JSON.parse(
       (mockWriteFileSync.mock.calls[0][1] as string).trim(),
@@ -214,6 +245,9 @@ describe("integrateClient (json)", () => {
     );
     expect(written.mcpServers["other-server"]).toEqual(existing.mcpServers["other-server"]);
     expect(written.mcpServers["tcs-n8n-mcp"]).toEqual(sampleConfig);
+    expect(mockWriteFileSync.mock.calls[0][2]).toEqual({
+      encoding: "utf-8", mode: 0o600, flag: "wx",
+    });
   });
 
   it("reports 'updated' when entry already exists", () => {
@@ -268,6 +302,20 @@ describe("integrateClient (json)", () => {
   });
 });
 
+describe("writeSecureJson", () => {
+  it("atomically replaces POSIX config files with mode 0600", () => {
+    writeSecureJson("/tmp/client/config.json", "{}\n", "linux");
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/\.config\.json\..+\.tmp$/),
+      "{}\n",
+      expect.objectContaining({ encoding: "utf-8", mode: 0o600, flag: "wx" }),
+    );
+    const tempPath = String(mockWriteFileSync.mock.calls[0][0]);
+    expect(mockRenameSync).toHaveBeenCalledWith(tempPath, "/tmp/client/config.json");
+    expect(mockChmodSync).toHaveBeenCalledWith("/tmp/client/config.json", 0o600);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // integrateClient — CLI mode
 // ---------------------------------------------------------------------------
@@ -278,37 +326,48 @@ describe("integrateClient (cli)", () => {
   };
 
   it("runs claude mcp add on success (npx command)", () => {
-    mockExecSync.mockReturnValue(Buffer.from(""));
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
 
     const result = integrateClient(cliClient, sampleConfig);
     expect(result).toEqual({ ok: true, action: "added" });
-    expect(mockExecSync).toHaveBeenCalledOnce();
-    const cmd = mockExecSync.mock.calls[0][0] as string;
-    expect(cmd).toContain("claude mcp add tcs-n8n-mcp");
-    expect(cmd).toContain("npx -y @thecodesaiyan/tcs-n8n-mcp");
+    expect(mockExecFileSync).toHaveBeenCalledWith(
+      "claude",
+      [
+        "mcp", "add", "tcs-n8n-mcp",
+        "-e", "N8N_API_URL=http://localhost:5678",
+        "-e", "N8N_API_KEY=test-key-123",
+        "--", "npx", "-y", "@thecodesaiyan/tcs-n8n-mcp",
+      ],
+      expect.objectContaining({ shell: false }),
+    );
   });
 
   it("runs claude mcp add with tcs-n8n-mcp binary for Windows config", () => {
-    mockExecSync.mockReturnValue(Buffer.from(""));
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
 
     const result = integrateClient(cliClient, winConfig);
     expect(result).toEqual({ ok: true, action: "added" });
-    const cmd = mockExecSync.mock.calls[0][0] as string;
-    expect(cmd).toContain("-- tcs-n8n-mcp");
-    expect(cmd).not.toContain("npx");
+    const args = mockExecFileSync.mock.calls[0][1] as string[];
+    expect(args.slice(-2)).toEqual(["--", "tcs-n8n-mcp"]);
+    expect(args).not.toContain("npx");
   });
 
-  it("includes env flags in CLI command", () => {
-    mockExecSync.mockReturnValue(Buffer.from(""));
+  it("passes hostile environment values as single literal arguments", () => {
+    mockExecFileSync.mockReturnValue(Buffer.from(""));
 
-    integrateClient(cliClient, sampleConfig);
-    const cmd = mockExecSync.mock.calls[0][0] as string;
-    expect(cmd).toContain("-e N8N_API_URL=http://localhost:5678");
-    expect(cmd).toContain("-e N8N_API_KEY=test-key-123");
+    integrateClient(cliClient, {
+      ...sampleConfig,
+      env: { ...sampleEnv, N8N_API_KEY: "key; echo pwned && $(whoami)" },
+    });
+    const args = mockExecFileSync.mock.calls[0][1] as string[];
+    expect(args).toContain("N8N_API_KEY=key; echo pwned && $(whoami)");
+    expect(mockExecFileSync.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ shell: false }),
+    );
   });
 
-  it("returns error when execSync throws", () => {
-    mockExecSync.mockImplementation(() => { throw new Error("command not found"); });
+  it("returns error when execFileSync throws", () => {
+    mockExecFileSync.mockImplementation(() => { throw new Error("command not found"); });
 
     const result = integrateClient(cliClient, sampleConfig);
     expect(result.ok).toBe(false);
@@ -328,6 +387,28 @@ describe("manualSnippet", () => {
     expect(snippet).toContain("claude mcp add tcs-n8n-mcp");
     expect(snippet).toContain("npx -y @thecodesaiyan/tcs-n8n-mcp");
     expect(snippet).toContain("-e N8N_API_URL=http://localhost:5678");
+    expect(snippet).toContain("set-in-client-config");
+    expect(snippet).not.toContain("test-key-123");
+  });
+
+  it("quotes hostile values for a POSIX shell", () => {
+    const client: ClientInfo = { name: "Claude Code", mode: "cli" };
+    const snippet = manualSnippet(client, {
+      ...sampleConfig,
+      env: { N8N_API_KEY: "key'; echo pwned; '" },
+    }, "linux");
+    expect(snippet).not.toContain("pwned");
+    expect(snippet).toContain("set-in-client-config");
+  });
+
+  it("quotes hostile values for PowerShell", () => {
+    const client: ClientInfo = { name: "Claude Code", mode: "cli" };
+    const snippet = manualSnippet(client, {
+      ...winConfig,
+      env: { N8N_API_KEY: "key'; Write-Host pwned; '" },
+    }, "win32");
+    expect(snippet).not.toContain("pwned");
+    expect(snippet).toContain("set-in-client-config");
   });
 
   it("returns claude mcp add with binary for Windows config", () => {
@@ -359,5 +440,57 @@ describe("manualSnippet", () => {
     const snippet = manualSnippet(client, sampleConfig);
     expect(snippet).toContain('"mcpServers"');
     expect(snippet).toContain('"tcs-n8n-mcp"');
+  });
+});
+
+describe("runSetup", () => {
+  it("reads credentials without readline echo and prints a truthful manual warning", async () => {
+    const question = vi.fn(async (prompt: string) => {
+      if (prompt.includes("n8n URL")) return "http://localhost:5678";
+      if (prompt.includes("Auth type")) return "apikey";
+      return "none";
+    });
+    const close = vi.fn();
+    mockCreateInterface.mockReturnValue({ question, close } as never);
+    mockReadSecret.mockResolvedValue("secret; $(not-executed)");
+    mockCheckConnection.mockResolvedValue({ ok: true });
+    mockExistsSync.mockReturnValue(false);
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runSetup();
+
+    expect(mockReadSecret).toHaveBeenCalledWith("  n8n API Key: ");
+    expect(question).not.toHaveBeenCalledWith(expect.stringContaining("API Key"));
+    expect(log.mock.calls.flat().join("\n")).toContain("Manual config snippets");
+    expect(log.mock.calls.flat().join("\n")).toContain("set-in-client-config");
+    expect(log.mock.calls.flat().join("\n")).not.toContain("secret; $(not-executed)");
+    log.mockRestore();
+  });
+
+  it("automatically writes a detected JSON client config", async () => {
+    const question = vi.fn(async (prompt: string) => {
+      if (prompt.includes("n8n URL")) return "https://n8n.example.test/api/v1";
+      if (prompt.includes("Auth type")) return "bearer";
+      return "all";
+    });
+    mockCreateInterface.mockReturnValue({ question, close: vi.fn() } as never);
+    mockReadSecret.mockResolvedValue("token");
+    mockCheckConnection.mockResolvedValue({ ok: true });
+    mockExistsSync.mockImplementation((path) => String(path).includes("Claude"));
+    mockReadFileSync.mockReturnValue(JSON.stringify({ mcpServers: {} }));
+    mockExecFileSync.mockImplementation(() => { throw new Error("not found"); });
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    await runSetup();
+
+    expect(mockWriteFileSync).toHaveBeenCalledOnce();
+    const written = JSON.parse(String(mockWriteFileSync.mock.calls[0][1]));
+    expect(written.mcpServers["tcs-n8n-mcp"].env).toMatchObject({
+      N8N_API_URL: "https://n8n.example.test/api/v1",
+      N8N_API_KEY: "token",
+      N8N_AUTH_TYPE: "bearer",
+    });
+    log.mockRestore();
   });
 });

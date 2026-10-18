@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { parseAuthType, buildAuthHeaders, parseTimeoutMs, checkConnection } from "./config.js";
+import { PassThrough } from "node:stream";
+import { vi } from "vitest";
+import { parseAuthType, buildAuthHeaders, parseTimeoutMs, checkConnection, readSecret } from "./config.js";
 import type { FetchFn } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -140,9 +142,13 @@ describe("parseTimeoutMs", () => {
     expect(parseTimeoutMs("abc")).toBe(30_000);
   });
 
-  it("truncates float via parseInt", () => {
-    // parseInt("12.5", 10) -> 12, which is > 0
-    expect(parseTimeoutMs("12.5")).toBe(12);
+  it("rejects non-integer syntax", () => {
+    expect(parseTimeoutMs("12.5")).toBe(30_000);
+  });
+
+  it("bounds values to a safe range", () => {
+    expect(parseTimeoutMs("99")).toBe(30_000);
+    expect(parseTimeoutMs("120001")).toBe(30_000);
   });
 });
 
@@ -188,5 +194,33 @@ describe("checkConnection", () => {
     if (!result.ok) {
       expect(result.error).toContain("string error");
     }
+  });
+});
+
+describe("readSecret", () => {
+  it("disables terminal echo and restores raw mode", async () => {
+    const input = new PassThrough() as PassThrough & {
+      isTTY: boolean;
+      isRaw: boolean;
+      setRawMode: ReturnType<typeof vi.fn>;
+    };
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = vi.fn((raw: boolean) => { input.isRaw = raw; });
+    const output = new PassThrough();
+    let written = "";
+    output.on("data", (chunk) => { written += chunk.toString(); });
+
+    const resultPromise = readSecret("Secret: ", {
+      input: input as unknown as NodeJS.ReadStream,
+      output: output as unknown as NodeJS.WriteStream,
+    });
+    input.write("s3cr&et\r");
+
+    await expect(resultPromise).resolves.toBe("s3cr&et");
+    expect(written).toBe("Secret: \n");
+    expect(written).not.toContain("s3cr&et");
+    expect(input.setRawMode).toHaveBeenNthCalledWith(1, true);
+    expect(input.setRawMode).toHaveBeenLastCalledWith(false);
   });
 });

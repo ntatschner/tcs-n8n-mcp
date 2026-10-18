@@ -1,4 +1,5 @@
 import type { FetchFn } from "./types.js";
+import { createInterface } from "node:readline/promises";
 
 /** Supported authentication types for the n8n API. */
 export type AuthType = "apikey" | "bearer" | "basic";
@@ -6,6 +7,65 @@ export type AuthType = "apikey" | "bearer" | "basic";
 const VALID_AUTH_TYPES: readonly AuthType[] = ["apikey", "bearer", "basic"];
 
 const CONTROL_CHAR_RE = /[\r\n\0]/;
+
+export interface SecretPromptStreams {
+  readonly input?: NodeJS.ReadStream;
+  readonly output?: NodeJS.WriteStream;
+}
+
+/** Read a credential without echoing it when attached to an interactive terminal. */
+export async function readSecret(
+  prompt: string,
+  streams: SecretPromptStreams = {},
+): Promise<string> {
+  const input = streams.input ?? process.stdin;
+  const output = streams.output ?? process.stdout;
+
+  if (!input.isTTY || typeof input.setRawMode !== "function") {
+    const rl = createInterface({ input, output });
+    try {
+      return await rl.question(prompt);
+    } finally {
+      rl.close();
+    }
+  }
+
+  output.write(prompt);
+  const wasRaw = input.isRaw;
+  input.setRawMode(true);
+  input.resume();
+
+  return new Promise<string>((resolve, reject) => {
+    let secret = "";
+    const cleanup = () => {
+      input.off("data", onData);
+      input.setRawMode?.(Boolean(wasRaw));
+      if (!wasRaw) input.pause();
+    };
+    const onData = (chunk: Buffer | string) => {
+      for (const character of chunk.toString("utf8")) {
+        if (character === "\r" || character === "\n") {
+          cleanup();
+          output.write("\n");
+          resolve(secret);
+          return;
+        }
+        if (character === "\u0003") {
+          cleanup();
+          output.write("\n");
+          reject(new Error("Credential entry cancelled"));
+          return;
+        }
+        if (character === "\b" || character === "\u007f") {
+          secret = Array.from(secret).slice(0, -1).join("");
+          continue;
+        }
+        if (!/[\u0000-\u001f\u007f]/.test(character)) secret += character;
+      }
+    };
+    input.on("data", onData);
+  });
+}
 
 /**
  * Parse and validate N8N_AUTH_TYPE.  Defaults to "apikey" when unset.
@@ -57,8 +117,11 @@ export function buildAuthHeaders(
  * Returns 30 000 ms for any invalid / missing value.
  */
 export function parseTimeoutMs(raw: string | undefined): number {
-  const value = parseInt(raw || "30000", 10);
-  if (!Number.isFinite(value) || value <= 0) {
+  if (!raw || !/^\d+$/.test(raw)) {
+    return 30_000;
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 100 || value > 120_000) {
     return 30_000;
   }
   return value;

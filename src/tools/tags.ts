@@ -1,82 +1,72 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { resourcePath } from "../client.js";
 import type { FetchFn } from "../types.js";
-import {
-  ok, err, handleError, safeJson,
-  type N8nPaginatedResponse, type N8nTag,
-} from "../types.js";
-import { n8nId, paginationCursor } from "../validation.js";
+import { err, handleError, parseJson, structuredOk } from "../types.js";
+import { paginationCursor, resourceId } from "../validation.js";
+
+const tagSchema = z.object({ id: z.string(), name: z.string() }).passthrough();
+const listSchema = z.object({ data: z.array(tagSchema), nextCursor: z.string().nullable().optional() });
+const truncationSchema = z.object({
+  truncated: z.literal(true), originalCharacters: z.number(), message: z.string(),
+});
+const boundedTagSchema = z.union([tagSchema, truncationSchema]);
+const boundedListSchema = z.union([listSchema, truncationSchema]);
+const mutationSchema = z.object({ id: z.string(), message: z.string() }).passthrough();
+const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
 export function registerTagTools(server: McpServer, n8nFetch: FetchFn) {
-  // --- list_tags ---
-  server.tool(
-    "list_tags",
-    "List all n8n tags used for organizing workflows.",
-    {
-      limit: z.number().int().positive().max(200).optional().default(50).describe("Max results"),
+  server.registerTool("list_tags", {
+    description: "List n8n tags with cursor pagination.",
+    inputSchema: z.object({
+      limit: z.number().int().positive().max(250).optional().default(50),
       cursor: paginationCursor,
-    },
-    async ({ limit, cursor }) => {
-      const params = new URLSearchParams();
-      if (limit) params.set("limit", String(limit));
-      if (cursor) params.set("cursor", cursor);
+    }),
+    outputSchema: boundedListSchema,
+    annotations: readOnly,
+  }, async ({ limit = 50, cursor }) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor !== undefined) params.set("cursor", cursor);
+    const res = await n8nFetch(`/tags?${params}`);
+    if (!res.ok) return handleError(res, "listing tags");
+    const result = await parseJson(res, listSchema);
+    return result ? structuredOk(result) : err("Failed to validate tag list response");
+  });
 
-      const res = await n8nFetch(`/tags?${params}`);
-      if (!res.ok) return handleError(res, "listing tags");
+  server.registerTool("create_tag", {
+    description: "Create a tag for organizing n8n workflows.",
+    inputSchema: z.object({ name: z.string().min(1) }),
+    outputSchema: boundedTagSchema,
+    annotations: write,
+  }, async ({ name }) => {
+    const res = await n8nFetch("/tags", { method: "POST", body: JSON.stringify({ name }) });
+    if (!res.ok) return handleError(res, "creating tag");
+    const tag = await parseJson(res, tagSchema);
+    return tag ? structuredOk(tag) : err("Failed to validate create tag response");
+  });
 
-      const json = await safeJson<N8nPaginatedResponse<N8nTag>>(res);
-      if (!json) return err("Failed to parse tag list response");
+  server.registerTool("update_tag", {
+    description: "Rename an n8n tag.",
+    inputSchema: z.object({ tagId: resourceId, name: z.string().min(1) }),
+    outputSchema: boundedTagSchema,
+    annotations: { ...write, idempotentHint: true },
+  }, async ({ tagId, name }) => {
+    const res = await n8nFetch(resourcePath("tags", tagId), { method: "PUT", body: JSON.stringify({ name }) });
+    if (!res.ok) return handleError(res, "updating tag");
+    const tag = await parseJson(res, tagSchema);
+    return tag ? structuredOk(tag) : err("Failed to validate update tag response");
+  });
 
-      const tags = json.data ?? [];
-      const lines = (Array.isArray(tags) ? tags : []).map(
-        (t: N8nTag) => `- ${t.name} (ID: ${t.id})`
-      );
-      return ok(`Found ${lines.length} tags:\n${lines.join("\n")}`);
-    }
-  );
-
-  // --- create_tag ---
-  server.tool(
-    "create_tag",
-    "Create a new tag for organizing n8n workflows.",
-    { name: z.string().describe("Tag name") },
-    async ({ name }) => {
-      const res = await n8nFetch("/tags", { method: "POST", body: JSON.stringify({ name }) });
-      if (!res.ok) return handleError(res, "creating tag");
-
-      const tag = await safeJson<N8nTag>(res);
-      if (!tag) return err("Failed to parse create tag response");
-      return ok(`Created tag "${tag.name}" (ID: ${tag.id})`);
-    }
-  );
-
-  // --- update_tag ---
-  server.tool(
-    "update_tag",
-    "Rename an existing n8n tag.",
-    {
-      tagId: n8nId.describe("ID of the tag to update"),
-      name: z.string().describe("New tag name"),
-    },
-    async ({ tagId, name }) => {
-      const res = await n8nFetch(`/tags/${tagId}`, { method: "PUT", body: JSON.stringify({ name }) });
-      if (!res.ok) return handleError(res, "updating tag");
-
-      const tag = await safeJson<N8nTag>(res);
-      if (!tag) return err("Failed to parse update tag response");
-      return ok(`Updated tag to "${tag.name}" (ID: ${tag.id})`);
-    }
-  );
-
-  // --- delete_tag ---
-  server.tool(
-    "delete_tag",
-    "Delete an n8n tag by ID.",
-    { tagId: n8nId.describe("ID of the tag to delete") },
-    async ({ tagId }) => {
-      const res = await n8nFetch(`/tags/${tagId}`, { method: "DELETE" });
-      if (!res.ok) return handleError(res, "deleting tag");
-      return ok(`Deleted tag ${tagId}`);
-    }
-  );
+  server.registerTool("delete_tag", {
+    description: "Permanently delete an n8n tag. Requires explicit confirmation.",
+    inputSchema: z.object({ tagId: resourceId, confirm: z.literal(true) }),
+    outputSchema: mutationSchema,
+    annotations: { ...write, destructiveHint: true },
+  }, async ({ tagId, confirm }) => {
+    if (confirm !== true) return err("Deletion not confirmed; set confirm to true");
+    const res = await n8nFetch(resourcePath("tags", tagId), { method: "DELETE" });
+    if (!res.ok) return handleError(res, "deleting tag");
+    return structuredOk({ id: tagId, message: `Deleted tag ${tagId}` });
+  });
 }

@@ -1,7 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { execSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline/promises";
+import {
+  buildAuthHeaders,
+  checkConnection,
+  parseAuthType,
+  readSecret,
+  type AuthType,
+} from "./config.js";
+import { createN8nFetch } from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,7 +118,11 @@ function resolveConfigPath(template: string, platform: string): string {
 
 function claudeCodeAvailable(): boolean {
   try {
-    execSync("claude --version", { stdio: "ignore", timeout: 5_000 });
+    execFileSync("claude", ["--version"], {
+      shell: false,
+      stdio: "ignore",
+      timeout: 5_000,
+    });
     return true;
   } catch {
     return false;
@@ -183,16 +197,24 @@ export function integrateClient(client: ClientInfo, config: McpEntry): Integrati
 }
 
 function integrateCli(config: McpEntry): IntegrationResult {
-  const envFlags = Object.entries(config.env)
-    .map(([k, v]) => `-e ${k}=${v}`)
-    .join(" ");
-
-  const cmd = config.command === "tcs-n8n-mcp"
-    ? `claude mcp add ${SERVER_KEY} ${envFlags} -- tcs-n8n-mcp`
-    : `claude mcp add ${SERVER_KEY} ${envFlags} -- npx -y ${PKG}`;
+  const envArgs = Object.entries(config.env)
+    .flatMap(([key, value]) => ["-e", `${key}=${value}`]);
+  const args = [
+    "mcp",
+    "add",
+    SERVER_KEY,
+    ...envArgs,
+    "--",
+    config.command,
+    ...config.args,
+  ];
 
   try {
-    execSync(cmd, { stdio: "ignore", timeout: 10_000 });
+    execFileSync("claude", args, {
+      shell: false,
+      stdio: "ignore",
+      timeout: 10_000,
+    });
     return { ok: true, action: "added" };
   } catch {
     return { ok: false, reason: "claude mcp add failed — configure manually" };
@@ -206,8 +228,9 @@ function integrateJson(
 ): IntegrationResult {
   let existing: Record<string, unknown> = {};
   let hadEntry = false;
+  const configExists = existsSync(configPath);
 
-  if (existsSync(configPath)) {
+  if (configExists) {
     const raw = readFileSync(configPath, "utf-8");
     try {
       existing = JSON.parse(raw) as Record<string, unknown>;
@@ -235,26 +258,207 @@ function integrateJson(
     mkdirSync(parentDir, { recursive: true });
   }
 
-  writeFileSync(configPath, JSON.stringify(merged, null, 2) + "\n", "utf-8");
+  writeSecureJson(configPath, JSON.stringify(merged, null, 2) + "\n");
 
   return { ok: true, action: hadEntry ? "updated" : "added" };
+}
+
+/** Atomically replace a client config, using owner-only permissions on POSIX. */
+export function writeSecureJson(
+  configPath: string,
+  content: string,
+  platform: string = process.platform,
+): void {
+  const tempPath = join(
+    dirname(configPath),
+    `.${basename(configPath)}.${randomUUID()}.tmp`,
+  );
+  try {
+    writeFileSync(tempPath, content, { encoding: "utf-8", mode: 0o600, flag: "wx" });
+    renameSync(tempPath, configPath);
+    if (platform !== "win32") chmodSync(configPath, 0o600);
+  } catch (error) {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+    throw error;
+  }
 }
 
 /**
  * Build a copy-paste snippet for manual configuration.
  */
-export function manualSnippet(client: ClientInfo, config: McpEntry): string {
+export function manualSnippet(
+  client: ClientInfo,
+  config: McpEntry,
+  platform: string = process.platform,
+): string {
+  const displayConfig: McpEntry = {
+    ...config,
+    env: {
+      ...config.env,
+      ...(config.env.N8N_API_KEY === undefined
+        ? {}
+        : { N8N_API_KEY: "<set-in-client-config>" }),
+    },
+  };
   if (client.mode === "cli") {
-    const envFlags = Object.entries(config.env)
-      .map(([k, v]) => `-e ${k}=${v}`)
-      .join(" ");
-
-    return config.command === "tcs-n8n-mcp"
-      ? `claude mcp add ${SERVER_KEY} ${envFlags} -- tcs-n8n-mcp`
-      : `claude mcp add ${SERVER_KEY} ${envFlags} -- npx -y ${PKG}`;
+    const quote = platform === "win32" ? quotePowerShell : quotePosixShell;
+    const args = [
+      "mcp",
+      "add",
+      SERVER_KEY,
+      ...Object.entries(displayConfig.env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
+      "--",
+      displayConfig.command,
+      ...displayConfig.args,
+    ];
+    return ["claude", ...args.map(quote)].join(" ");
   }
 
   const keyLabel = client.jsonKey ?? "mcpServers";
-  const json = JSON.stringify(config, null, 4);
+  const json = JSON.stringify(displayConfig, null, 4);
   return `Add to your config JSON under "${keyLabel}":\n\n  "${SERVER_KEY}": ${json}`;
+}
+
+/** Run the interactive setup wizard used by the CLI entry point. */
+export async function runSetup(): Promise<void> {
+  const initialPrompt = createInterface({ input: process.stdin, output: process.stdout });
+  console.log("\n  @thecodesaiyan/tcs-n8n-mcp - Setup Wizard\n");
+
+  let url: string;
+  let authType: AuthType;
+  let apiUser = "";
+  try {
+    url = (await initialPrompt.question("  n8n URL [http://localhost:5678]: ")).trim()
+      || "http://localhost:5678";
+    const authTypeRaw = (
+      await initialPrompt.question("  Auth type (apikey/bearer/basic) [apikey]: ")
+    ).trim() || "apikey";
+    authType = parseAuthType(authTypeRaw);
+
+    if (authType === "basic") {
+      apiUser = (await initialPrompt.question("  n8n Username: ")).trim();
+      if (!apiUser) throw new Error("Username is required for basic auth");
+    }
+  } finally {
+    initialPrompt.close();
+  }
+
+  const credentialLabel = authType === "basic" ? "Password" : "API Key";
+  const apiKey = (await readSecret(`  n8n ${credentialLabel}: `)).trim();
+  if (!apiKey) {
+    throw new Error(
+      authType === "basic"
+        ? "Password is required"
+        : "API key is required. Generate one in n8n: Settings > API > Create API Key",
+    );
+  }
+
+  console.log("\n  Testing connection...");
+  const authHeaders = buildAuthHeaders(authType, apiKey, apiUser || undefined);
+  const connection = await checkConnection(createN8nFetch({
+    baseUrl: url,
+    authHeaders,
+    timeoutMs: 10_000,
+  }));
+  if (!connection.ok) throw new Error(`Connection failed: ${connection.error}`);
+  console.log("  Connected successfully!\n");
+
+  const env: Record<string, string> = { N8N_API_URL: url, N8N_API_KEY: apiKey };
+  if (authType !== "apikey") env.N8N_AUTH_TYPE = authType;
+  if (authType === "basic") env.N8N_API_USER = apiUser;
+
+  const config = buildMcpConfig(process.platform, env);
+  if (process.platform === "win32") {
+    console.log("  -- Prerequisite (Windows) --");
+    console.log("  npm install -g @thecodesaiyan/tcs-n8n-mcp\n");
+  }
+
+  const clients = detectClients();
+  if (clients.length === 0) {
+    console.log("  No MCP clients detected. Manual config snippets:\n");
+    printManualSnippets(config);
+    return;
+  }
+
+  console.log("  Detected MCP clients:\n");
+  clients.forEach((client, index) => {
+    const modeLabel = client.mode === "json" ? "auto" : client.mode === "cli" ? "CLI" : "manual";
+    console.log(`    ${index + 1}. ${client.name} (${modeLabel})`);
+  });
+  console.log();
+
+  const selectionPrompt = createInterface({ input: process.stdin, output: process.stdout });
+  let answer: string;
+  try {
+    answer = (
+      await selectionPrompt.question("  Configure which? (1,2,... or 'all' or 'none') [all]: ")
+    ).trim().toLowerCase() || "all";
+  } finally {
+    selectionPrompt.close();
+  }
+
+  if (answer === "none") {
+    console.log("\n  Skipped. Manual config snippets:\n");
+    printManualSnippets(config);
+    return;
+  }
+
+  const selected = selectClients(clients, answer);
+  if (selected.length === 0) {
+    console.log("\n  No valid selection. Manual config snippets:\n");
+    printManualSnippets(config);
+    return;
+  }
+
+  console.log();
+  for (const client of selected) {
+    if (client.mode === "manual") {
+      console.log(`  -- ${client.name} (manual) --`);
+      console.log(`  ${manualSnippet(client, config)}\n`);
+      continue;
+    }
+
+    const result = integrateClient(client, config);
+    if (result.ok) {
+      console.log(`  OK ${client.name}: ${result.action}`);
+    } else {
+      console.log(`  ERROR ${client.name}: ${result.reason}`);
+      console.log("    Manual fallback:");
+      console.log(`    ${manualSnippet(client, config)}\n`);
+    }
+  }
+
+  console.log("\n  Installed config entries contain credentials; displayed snippets use a placeholder.");
+  console.log("  Keep client configuration files private.\n");
+}
+
+function selectClients(
+  clients: readonly ClientInfo[],
+  answer: string,
+): readonly ClientInfo[] {
+  if (answer === "all") return clients;
+  const indices = answer
+    .split(/[,\s]+/)
+    .map((value) => Number.parseInt(value, 10) - 1)
+    .filter((index) => index >= 0 && index < clients.length);
+  return indices.map((index) => clients[index]);
+}
+
+function printManualSnippets(config: McpEntry): void {
+  const jsonClient: ClientInfo = { name: "JSON clients", mode: "manual", jsonKey: "mcpServers" };
+  const cliClient: ClientInfo = { name: "Claude Code", mode: "cli" };
+  console.log("  -- Claude Desktop / Windsurf / Cursor --");
+  console.log(`  ${manualSnippet(jsonClient, config)}\n`);
+  console.log("  -- Claude Code --");
+  console.log(`  ${manualSnippet(cliClient, config)}\n`);
+}
+
+function quotePosixShell(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function quotePowerShell(value: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "''")}'`;
 }

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Read-only evaluation set for the frozen tcs-n8n-mcp-eval-v1 n8n fixture.
+  Load that fixture before running these evaluations; production workspaces are
+  intentionally unsuitable because their answers are not stable.
+-->
+<evaluation>
+  <qa_pair>
+    <question>In project eval-project, page through every inactive workflow created before 2025-01-01. Among workflows tagged for finance, inspect each full workflow and identify the one with the greatest number of nodes. Return only its workflow name.</question>
+    <answer>Quarterly Ledger Reconciliation</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>For workflow wf-eval-orders, inspect all executions started from 2024-04-01 through 2024-06-30, following every cursor. Among successful executions, which execution had the longest elapsed time between start and stop? Return only its numeric execution ID.</question>
+    <answer>1042</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Page through the workflows in eval-project and inspect those whose names concern customer onboarding. Which active workflow contains both a form trigger and a CRM update node, and has more nodes than the other onboarding workflows? Return only its name.</question>
+    <answer>Enterprise Customer Onboarding</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Page through all variables in the frozen evaluation fixture and compare their keys with the names and descriptions of all workflows in eval-project. Which variable key is referenced by the archived disaster-recovery workflow but by no active workflow? Return only the key.</question>
+    <answer>LEGACY_BACKUP_BUCKET</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>List every user in eval-project with role information, following all pagination cursors. Find the owner whose email domain matches the domain used in the notification nodes of the workflow named Security Incident Escalation. Return only that user's email address.</question>
+    <answer>mira.chen@example.test</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Inspect all credential metadata pages and the full definitions of workflows tagged payments. The credential type used by the greatest number of distinct payment-workflow nodes has what exact type name? Return only the type name.</question>
+    <answer>stripeApi</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Page through every tag and every workflow in eval-project. Consider only tags attached to at least one active and at least one inactive workflow. Which such tag is attached to the greatest total number of workflows? Return only the tag name.</question>
+    <answer>operations</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>For workflow wf-eval-import, inspect every failed or crashed execution during July 2024, following all pages and requesting execution data for each candidate. Which node name appears as the last executed node most often? Return only the node name.</question>
+    <answer>Validate Customer Row</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Page through all workflows in eval-project and inspect each full workflow. How many inactive workflows contain at least one schedule trigger and no webhook trigger? Return only the integer.</question>
+    <answer>4</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Inspect all active workflows tagged public-api in eval-project. Exactly one has a webhook node configured for POST and a response node that returns status 202. Return only that webhook node's configured path.</question>
+    <answer>v1/intake/batch</answer>
+  </qa_pair>
+</evaluation>

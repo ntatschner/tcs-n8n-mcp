@@ -3,61 +3,95 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18, 20, 22]
+        node-version: ["22.14.0", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm test
+      - run: npm run test:coverage
+      - run: npm audit --audit-level=high
+      - run: npm pack --dry-run
 
-  release:
+  package-smoke:
     needs: build-and-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: Pack and install the published artifact shape
+        shell: bash
+        run: |
+          package_file="$(npm pack --silent)"
+          smoke_dir="$RUNNER_TEMP/tcs-n8n-mcp-smoke"
+          mkdir -p "$smoke_dir"
+          npm install --prefix "$smoke_dir" "$GITHUB_WORKSPACE/$package_file" @modelcontextprotocol/client@2.3.1
+          test -x "$smoke_dir/node_modules/.bin/tcs-n8n-mcp"
+          node --check "$smoke_dir/node_modules/@thecodesaiyan/tcs-n8n-mcp/build/index.js"
+          cd "$smoke_dir"
+          node --input-type=module <<'EOF'
+          import { Client } from "@modelcontextprotocol/client";
+          import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+          const transport = new StdioClientTransport({
+            command: "./node_modules/.bin/tcs-n8n-mcp",
+            env: { ...process.env, N8N_API_KEY: "package-smoke" },
+          });
+          const client = new Client({ name: "package-smoke", version: "1.0.0" });
+          await client.connect(transport);
+          const { tools } = await client.listTools();
+          if (tools.length !== 21) throw new Error(`Expected 21 tools, received ${tools.length}`);
+          await client.close();
+          EOF
+
+  release:
+    needs: [build-and-test, package-smoke]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: 20
+          node-version: "24"
           registry-url: https://registry.npmjs.org
-      - name: Check for new version
-        id: version
+          cache: npm
+      - name: Verify release tag matches package version
+        shell: bash
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          TAG="v${VERSION}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+          expected_tag="v$(node -p "require('./package.json').version")"
+          if [[ "$GITHUB_REF_NAME" != "$expected_tag" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $expected_tag" >&2
+            exit 1
           fi
-      - name: Create release
-        if: steps.version.outputs.exists == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ steps.version.outputs.tag }}" --generate-notes --title "${{ steps.version.outputs.tag }}"
-      - name: Publish to npm
-        if: steps.version.outputs.exists == 'false'
+      - run: npm ci
+      - run: npm run build
+      - name: Publish to npm with trusted publishing
         run: |
-          npm ci
-          npm run build
+          npm install --global npm@11.5.1
           npm publish --provenance --access public
+      - name: Create GitHub release after npm publication
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
