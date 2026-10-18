@@ -85,6 +85,19 @@ describe("workflow tools", () => {
     });
   });
 
+  it("reports workflow API and validation failures", async () => {
+    const h = harness(registerWorkflowTools);
+    h.fetch
+      .mockResolvedValueOnce(new Response(null, { status: 503, statusText: "Unavailable" }))
+      .mockResolvedValueOnce(json({ data: [{ id: 1, name: "invalid" }] }))
+      .mockResolvedValueOnce(new Response(null, { status: 404, statusText: "Not Found" }))
+      .mockResolvedValueOnce(json({ id: 1, name: "invalid" }));
+    expect((await h.call("list_workflows", {})).isError).toBe(true);
+    expect((await h.call("list_workflows", {})).isError).toBe(true);
+    expect((await h.call("get_workflow", { workflowId: "missing" })).isError).toBe(true);
+    expect((await h.call("get_workflow", { workflowId: "bad" })).isError).toBe(true);
+  });
+
   it("sends current create fields", async () => {
     const h = harness(registerWorkflowTools);
     h.fetch.mockResolvedValueOnce(json({ id: "wf1", name: "Created", active: false }));

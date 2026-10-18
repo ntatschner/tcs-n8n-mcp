@@ -103,7 +103,6 @@ describe("createN8nFetch", () => {
   });
 
   it("honors caller abort and always enforces its own timeout", async () => {
-    vi.useFakeTimers();
     const signals: AbortSignal[] = [];
     const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       signals.push(init?.signal as AbortSignal);
@@ -124,10 +123,8 @@ describe("createN8nFetch", () => {
     await expect(callerRequest).rejects.toThrow("caller stopped");
 
     const timeoutRequest = request("/workflows", { signal: new AbortController().signal });
-    await vi.advanceTimersByTimeAsync(101);
     await expect(timeoutRequest).rejects.toThrow();
     expect(signals).toHaveLength(2);
-    vi.useRealTimers();
   });
 
   it("rejects a path that could escape the API base", async () => {
