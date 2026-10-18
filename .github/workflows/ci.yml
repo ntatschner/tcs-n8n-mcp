@@ -53,7 +53,8 @@ jobs:
           import { Client } from "@modelcontextprotocol/client";
           import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
           const transport = new StdioClientTransport({
-            command: "./node_modules/.bin/tcs-n8n-mcp",
+            command: process.execPath,
+            args: ["./node_modules/@thecodesaiyan/tcs-n8n-mcp/build/index.js"],
             env: { ...process.env, N8N_API_KEY: "package-smoke" },
           });
           const client = new Client({ name: "package-smoke", version: "1.0.0" });
