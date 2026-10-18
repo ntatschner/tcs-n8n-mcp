@@ -104,6 +104,12 @@ describe("createN8nFetch", () => {
 
   it("honors caller abort and always enforces its own timeout", async () => {
     const signals: AbortSignal[] = [];
+    const timeoutControllers: AbortController[] = [];
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+      const controller = new AbortController();
+      timeoutControllers.push(controller);
+      return controller.signal;
+    });
     const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
       signals.push(init?.signal as AbortSignal);
       return new Promise<Response>((_resolve, reject) => {
@@ -123,8 +129,11 @@ describe("createN8nFetch", () => {
     await expect(callerRequest).rejects.toThrow("caller stopped");
 
     const timeoutRequest = request("/workflows", { signal: new AbortController().signal });
+    timeoutControllers[1].abort(new DOMException("Timed out", "TimeoutError"));
     await expect(timeoutRequest).rejects.toThrow();
     expect(signals).toHaveLength(2);
+    expect(timeoutSpy).toHaveBeenCalledTimes(2);
+    timeoutSpy.mockRestore();
   });
 
   it("rejects a path that could escape the API base", async () => {
